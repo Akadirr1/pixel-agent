@@ -114,6 +114,14 @@ components:
         - $ref: '#/components/schemas/ExternalAssetDirectoriesUpdated'
         - $ref: '#/components/schemas/AreaMappingsLoaded'
         - $ref: '#/components/schemas/WorkspaceFolders'
+        # Standalone workspace + terminals
+        - $ref: '#/components/schemas/AgentProfilesLoaded'
+        - $ref: '#/components/schemas/TerminalSessions'
+        - $ref: '#/components/schemas/TerminalCreated'
+        - $ref: '#/components/schemas/TerminalOutput'
+        - $ref: '#/components/schemas/TerminalExited'
+        - $ref: '#/components/schemas/TerminalClosed'
+        - $ref: '#/components/schemas/TerminalError'
         # Diagnostics
         - $ref: '#/components/schemas/AgentDiagnostics'
       discriminator: type
@@ -141,6 +149,11 @@ components:
         - $ref: '#/components/schemas/SaveAreaMappings'
         - $ref: '#/components/schemas/SetShowAreas'
         - $ref: '#/components/schemas/RequestDiagnostics'
+        - $ref: '#/components/schemas/RefreshAgentProfiles'
+        - $ref: '#/components/schemas/CreateTerminal'
+        - $ref: '#/components/schemas/TerminalInput'
+        - $ref: '#/components/schemas/TerminalResize'
+        - $ref: '#/components/schemas/CloseTerminal'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -725,6 +738,96 @@ components:
           items:
             type: object
 
+    AgentProfilesLoaded:
+      description: Agent instruction profiles discovered from the selected workspace.
+      type: object
+      additionalProperties: false
+      required: [type, workspaceName, workspacePath, terminalEnabled, profiles, warnings]
+      properties:
+        type:
+          const: agentProfilesLoaded
+        workspaceName:
+          type: string
+        workspacePath:
+          type: string
+        terminalEnabled:
+          type: boolean
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentProfile'
+        warnings:
+          type: array
+          items:
+            type: string
+
+    TerminalSessions:
+      description: Current standalone terminal session snapshot.
+      type: object
+      additionalProperties: false
+      required: [type, terminals]
+      properties:
+        type:
+          const: terminalSessions
+        terminals:
+          type: array
+          items:
+            $ref: '#/components/schemas/TerminalSession'
+
+    TerminalCreated:
+      type: object
+      additionalProperties: false
+      required: [type, terminal]
+      properties:
+        type:
+          const: terminalCreated
+        terminal:
+          $ref: '#/components/schemas/TerminalSession'
+
+    TerminalOutput:
+      type: object
+      additionalProperties: false
+      required: [type, id, data]
+      properties:
+        type:
+          const: terminalOutput
+        id:
+          type: string
+        data:
+          type: string
+
+    TerminalExited:
+      type: object
+      additionalProperties: false
+      required: [type, terminal]
+      properties:
+        type:
+          const: terminalExited
+        terminal:
+          $ref: '#/components/schemas/TerminalSession'
+
+    TerminalClosed:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: terminalClosed
+        id:
+          type: string
+
+    TerminalError:
+      type: object
+      additionalProperties: false
+      required: [type, message]
+      properties:
+        type:
+          const: terminalError
+        message:
+          type: string
+        terminalId:
+          type: string
+
     # ── Client message variants ────────────────────────────────────
 
     WebviewReady:
@@ -957,6 +1060,75 @@ components:
         type:
           const: requestDiagnostics
 
+    RefreshAgentProfiles:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: refreshAgentProfiles
+
+    CreateTerminal:
+      description: Launch a standalone shell or an agent profile in a PTY.
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: createTerminal
+        profileId:
+          type: string
+        cwd:
+          type: string
+        cols:
+          type: integer
+          minimum: 20
+          maximum: 400
+        rows:
+          type: integer
+          minimum: 5
+          maximum: 200
+
+    TerminalInput:
+      type: object
+      additionalProperties: false
+      required: [type, id, data]
+      properties:
+        type:
+          const: terminalInput
+        id:
+          type: string
+        data:
+          type: string
+
+    TerminalResize:
+      type: object
+      additionalProperties: false
+      required: [type, id, cols, rows]
+      properties:
+        type:
+          const: terminalResize
+        id:
+          type: string
+        cols:
+          type: integer
+          minimum: 20
+          maximum: 400
+        rows:
+          type: integer
+          minimum: 5
+          maximum: 200
+
+    CloseTerminal:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: closeTerminal
+        id:
+          type: string
+
     # ── Supporting schemas ─────────────────────────────────────────
 
     AgentSeatMeta:
@@ -988,6 +1160,54 @@ components:
           type: integer
         seatId:
           type: [string, 'null']
+
+    AgentProfile:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, provider, sourcePath, instructions, launchable]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        provider:
+          type: string
+        sourcePath:
+          type: string
+        instructions:
+          type: string
+        model:
+          type: string
+        effort:
+          type: string
+        launchable:
+          type: boolean
+
+    TerminalSession:
+      type: object
+      additionalProperties: false
+      required: [id, title, cwd, pid, status]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        cwd:
+          type: string
+        pid:
+          type: integer
+        status:
+          $ref: '#/components/schemas/TerminalSessionStatus'
+        profileId:
+          type: string
+        exitCode:
+          type: integer
+
+    TerminalSessionStatus:
+      type: string
+      enum: [running, exited]
 
     WorkspaceFolder:
       type: object

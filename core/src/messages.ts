@@ -36,6 +36,13 @@ export type ServerMessage =
   | ExternalAssetDirectoriesUpdated
   | AreaMappingsLoaded
   | WorkspaceFolders
+  | AgentProfilesLoaded
+  | TerminalSessions
+  | TerminalCreated
+  | TerminalOutput
+  | TerminalExited
+  | TerminalClosed
+  | TerminalError
   | AgentDiagnostics;
 
 export type ClientMessage =
@@ -59,7 +66,12 @@ export type ClientMessage =
   | RemoveExternalAssetDirectory
   | SaveAreaMappings
   | SetShowAreas
-  | RequestDiagnostics;
+  | RequestDiagnostics
+  | RefreshAgentProfiles
+  | CreateTerminal
+  | TerminalInput
+  | TerminalResize
+  | CloseTerminal;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -294,6 +306,71 @@ export interface WorkspaceFolder {
   path: string;
 }
 
+export interface AgentProfilesLoaded {
+  type: 'agentProfilesLoaded';
+  workspaceName: string;
+  workspacePath: string;
+  terminalEnabled: boolean;
+  profiles: AgentProfile[];
+  warnings: string[];
+}
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  sourcePath: string;
+  instructions: string;
+  model?: string;
+  effort?: string;
+  launchable: boolean;
+}
+
+export interface TerminalSessions {
+  type: 'terminalSessions';
+  terminals: TerminalSession[];
+}
+
+export interface TerminalSession {
+  id: string;
+  title: string;
+  cwd: string;
+  pid: number;
+  status: TerminalSessionStatus;
+  profileId?: string;
+  exitCode?: number;
+}
+
+export type TerminalSessionStatus = 'running' | 'exited';
+
+export interface TerminalCreated {
+  type: 'terminalCreated';
+  terminal: TerminalSession;
+}
+
+export interface TerminalOutput {
+  type: 'terminalOutput';
+  id: string;
+  data: string;
+}
+
+export interface TerminalExited {
+  type: 'terminalExited';
+  terminal: TerminalSession;
+}
+
+export interface TerminalClosed {
+  type: 'terminalClosed';
+  id: string;
+}
+
+export interface TerminalError {
+  type: 'terminalError';
+  message: string;
+  terminalId?: string;
+}
+
 export interface AgentDiagnostics {
   type: 'agentDiagnostics';
   agents: Record<string, any>[];
@@ -403,4 +480,34 @@ export interface SetShowAreas {
 
 export interface RequestDiagnostics {
   type: 'requestDiagnostics';
+}
+
+export interface RefreshAgentProfiles {
+  type: 'refreshAgentProfiles';
+}
+
+export interface CreateTerminal {
+  type: 'createTerminal';
+  profileId?: string;
+  cwd?: string;
+  cols?: number;
+  rows?: number;
+}
+
+export interface TerminalInput {
+  type: 'terminalInput';
+  id: string;
+  data: string;
+}
+
+export interface TerminalResize {
+  type: 'terminalResize';
+  id: string;
+  cols: number;
+  rows: number;
+}
+
+export interface CloseTerminal {
+  type: 'closeTerminal';
+  id: string;
 }

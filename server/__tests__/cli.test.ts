@@ -69,6 +69,8 @@ describe('parseArgs', () => {
     const args = parseArgs([]);
     expect(args.port).toBeUndefined();
     expect(args.host).toBe('127.0.0.1');
+    expect(args.workspace).toBe(process.cwd());
+    expect(args.terminalEnabled).toBe(true);
   });
 
   // 2. Valid --port is accepted
@@ -117,6 +119,16 @@ describe('parseArgs', () => {
   // 10. --host is parsed independently of --port
   it('parses --host', () => {
     expect(parseArgs(['--host', '0.0.0.0']).host).toBe('0.0.0.0');
+  });
+
+  it('parses standalone workspace and monitor-only mode', () => {
+    const args = parseArgs(['--workspace', 'example', '--no-terminal']);
+    expect(args.workspace).toBe('example');
+    expect(args.terminalEnabled).toBe(false);
+  });
+
+  it('rejects an unknown option instead of silently ignoring it', () => {
+    expect(() => parseArgs(['--unknown'])).toThrow(CliArgsError);
   });
 });
 
@@ -200,7 +212,12 @@ describe('dist/cli.js entry-point guard', () => {
         string,
         unknown
       >;
-      expect(JSON.stringify(settings)).toContain(installedHook);
+      const commands = Object.values(
+        (settings.hooks ?? {}) as Record<string, Array<{ hooks?: Array<{ command?: string }> }>>,
+      ).flatMap((entries) =>
+        entries.flatMap((entry) => entry.hooks?.map((hook) => hook.command ?? '') ?? []),
+      );
+      expect(commands.some((command) => command.includes(installedHook))).toBe(true);
     } finally {
       await stopChild(child);
       fs.rmSync(tmpHome, { recursive: true, force: true });

@@ -20,6 +20,8 @@ import {
 import { createHttpServer } from './httpServer.js';
 import type { ServerConfig } from './serverConfig.js';
 import { isServerConfig, isServerTarget } from './serverConfig.js';
+import type { StandaloneTerminalManager } from './standaloneTerminalManager.js';
+import type { WorkspaceProfileService } from './workspaceProfiles.js';
 
 export type { ServerConfig } from './serverConfig.js';
 
@@ -69,9 +71,14 @@ export class PixelAgentsServer {
     assetCache?: AssetCache;
     onSetHooksEnabled?: SetHooksEnabledSideEffect;
     onReloadAssets?: ReloadAssetsSideEffect;
+    interactive?: boolean;
+    workspacePath?: string;
+    terminalManager?: StandaloneTerminalManager;
+    profileService?: WorkspaceProfileService;
   }): Promise<ServerConfig> {
     const embedded = options?.embedded ?? true;
     const wantsSpa = !embedded;
+    const wantsInteractive = options?.interactive ?? false;
 
     // Capability-based reuse: an embedded (VS Code) caller only reuses another
     // embedded server (today's multi-window sharing); a standalone caller only
@@ -80,7 +87,12 @@ export class PixelAgentsServer {
     // server (blank page). Prune dead entries first so a crashed server's
     // stale file never blocks discovery of a live one.
     const registry = this.readAndPruneRegistry();
-    const candidate = registry.find((e) => e.servesSpa === wantsSpa);
+    const candidate = registry.find(
+      (e) =>
+        e.servesSpa === wantsSpa &&
+        e.interactive === wantsInteractive &&
+        e.workspacePath === (options?.workspacePath ?? ''),
+    );
     if (candidate) {
       this.config = candidate;
       this.ownsServer = false;
@@ -106,6 +118,8 @@ export class PixelAgentsServer {
       onHookEvent: (providerId, event) => this.callback?.(providerId, event),
       onSetHooksEnabled: options?.onSetHooksEnabled,
       onReloadAssets: options?.onReloadAssets,
+      terminalManager: options?.terminalManager,
+      profileService: options?.profileService,
     });
 
     this.app = app;
@@ -115,6 +129,8 @@ export class PixelAgentsServer {
       token,
       startedAt: Date.now(),
       servesSpa: wantsSpa,
+      interactive: wantsInteractive,
+      workspacePath: options?.workspacePath ?? '',
       protocol: SERVER_REGISTRY_PROTOCOL_VERSION,
       // Diagnostic-only: forward the debug-log path to the hook script via
       // server.json (env vars don't reach the spawned hook reliably).

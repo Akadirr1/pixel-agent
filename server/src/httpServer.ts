@@ -14,7 +14,12 @@ import type {
 } from './clientMessageHandler.js';
 import { handleClientMessage } from './clientMessageHandler.js';
 import { HOOK_API_PREFIX, MAX_HOOK_BODY_SIZE } from './constants.js';
+import type {
+  StandaloneTerminalManager,
+  TerminalSessionData,
+} from './standaloneTerminalManager.js';
 import type { AgentState } from './types.js';
+import type { WorkspaceProfileService } from './workspaceProfiles.js';
 
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
@@ -40,6 +45,10 @@ export interface HttpServerOptions {
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
   /** Invoked when an external asset directory is added/removed. Standalone reloads + re-broadcasts assets here. */
   onReloadAssets?: ReloadAssetsSideEffect;
+  /** Standalone-only PTY service. */
+  terminalManager?: StandaloneTerminalManager;
+  /** Standalone-only dynamic agent instruction service. */
+  profileService?: WorkspaceProfileService;
 }
 
 /** Result of createHttpServer(). */
@@ -184,6 +193,23 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
     store.on('agentRemoved', onAgentRemoved);
     store.on('broadcast', onBroadcast);
 
+    const onTerminalCreated = (terminal: TerminalSessionData) => {
+      safeSend(socket, { type: 'terminalCreated', terminal });
+    };
+    const onTerminalOutput = (id: string, data: string) => {
+      safeSend(socket, { type: 'terminalOutput', id, data });
+    };
+    const onTerminalExited = (terminal: TerminalSessionData) => {
+      safeSend(socket, { type: 'terminalExited', terminal });
+    };
+    const onTerminalClosed = (id: string) => {
+      safeSend(socket, { type: 'terminalClosed', id });
+    };
+    options.terminalManager?.on('created', onTerminalCreated);
+    options.terminalManager?.on('output', onTerminalOutput);
+    options.terminalManager?.on('exited', onTerminalExited);
+    options.terminalManager?.on('closed', onTerminalClosed);
+
     // Handle incoming client messages
     socket.on('message', (data: Buffer | string) => {
       try {
@@ -197,6 +223,8 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
           cache: options.assetCache ?? null,
           onSetHooksEnabled: options.onSetHooksEnabled,
           onReloadAssets: options.onReloadAssets,
+          terminalManager: options.terminalManager,
+          profileService: options.profileService,
         });
       } catch {
         // Malformed JSON, ignore
@@ -207,6 +235,10 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
       store.off('agentAdded', onAgentAdded);
       store.off('agentRemoved', onAgentRemoved);
       store.off('broadcast', onBroadcast);
+      options.terminalManager?.off('created', onTerminalCreated);
+      options.terminalManager?.off('output', onTerminalOutput);
+      options.terminalManager?.off('exited', onTerminalExited);
+      options.terminalManager?.off('closed', onTerminalClosed);
     });
   });
 }

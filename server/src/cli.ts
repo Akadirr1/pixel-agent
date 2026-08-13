@@ -8,6 +8,7 @@
  * Each connecting WebSocket client receives the full state on webviewReady.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { AgentRuntime } from './agentRuntime.js';
@@ -24,6 +25,8 @@ import { MAX_PORT, MIN_PORT } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { claudeProvider, copyHookScript } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
+import { StandaloneTerminalManager } from './standaloneTerminalManager.js';
+import { WorkspaceProfileService } from './workspaceProfiles.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
@@ -32,6 +35,8 @@ export interface CliArgs {
    *  can run at once without a collision. --port picks a fixed one. */
   port?: number;
   host: string;
+  workspace: string;
+  terminalEnabled: boolean;
 }
 
 /** Thrown by parseArgs on an invalid --port. Kept separate from process.exit so
@@ -40,7 +45,11 @@ export interface CliArgs {
 export class CliArgsError extends Error {}
 
 export function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { host: '127.0.0.1' };
+  const args: CliArgs = {
+    host: '127.0.0.1',
+    workspace: process.cwd(),
+    terminalEnabled: true,
+  };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--port' || argv[i] === '-p') {
       const raw = argv[i + 1];
@@ -60,16 +69,28 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (argv[i] === '--host' && argv[i + 1]) {
       args.host = argv[i + 1];
       i++;
+    } else if (argv[i] === '--workspace') {
+      const raw = argv[i + 1];
+      if (!raw) throw new CliArgsError('Missing value for --workspace');
+      args.workspace = raw;
+      i++;
+    } else if (argv[i] === '--no-terminal') {
+      args.terminalEnabled = false;
     } else if (argv[i] === '--help') {
       console.log(`Usage: pixel-agents [options]
 
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)
   --host <string>       Host to bind to (default: 127.0.0.1)
+  --workspace <path>    Workspace whose agents and instructions are loaded (default: cwd)
+  --no-terminal         Monitor agents and instructions without interactive PTYs
   --help                Show this help message`);
       process.exit(0);
+    } else {
+      throw new CliArgsError(`Unknown option: ${argv[i]}`);
     }
   }
+
   return args;
 }
 
@@ -83,11 +104,27 @@ async function main(): Promise<void> {
     console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
+  const workspaceRoot = path.resolve(args.workspace);
+  if (!fs.existsSync(workspaceRoot) || !fs.statSync(workspaceRoot).isDirectory()) {
+    console.error(`[Pixel Agents] Workspace is not a directory: ${workspaceRoot}`);
+    process.exit(1);
+  }
+  const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+  if (args.terminalEnabled && !loopbackHosts.has(args.host)) {
+    console.error(
+      '[Pixel Agents] Interactive terminals require a loopback host. Use --no-terminal for network monitoring.',
+    );
+    process.exit(1);
+  }
 
   // dist/ contains both the CLI bundle and the assets/ + webview/ directories
   const distRoot = __dirname;
   const packageRoot = path.dirname(distRoot);
   const staticDir = path.join(distRoot, 'webview');
+  const profileService = new WorkspaceProfileService(workspaceRoot);
+  const terminalManager = args.terminalEnabled
+    ? new StandaloneTerminalManager(workspaceRoot)
+    : undefined;
 
   // ── Load assets on startup (same pipeline as VS Code extension) ──
   // External asset directories are merged at startup too, so directories added
@@ -191,6 +228,10 @@ async function main(): Promise<void> {
       assetCache,
       onSetHooksEnabled,
       onReloadAssets,
+      interactive: args.terminalEnabled,
+      workspacePath: workspaceRoot,
+      terminalManager,
+      profileService,
     });
     currentConfig = { port: config.port, token: config.token };
 
@@ -214,8 +255,7 @@ async function main(): Promise<void> {
     }
 
     // Start scanning for external sessions (Claude running in user's terminal)
-    const cwd = process.cwd();
-    const dirs = claudeProvider.getSessionDirs?.(cwd);
+    const dirs = claudeProvider.getSessionDirs?.(workspaceRoot);
     if (dirs && dirs[0]) {
       const projectDir = dirs[0];
       console.log(`[Pixel Agents] Scanning project dir: ${projectDir}`);
@@ -229,6 +269,7 @@ async function main(): Promise<void> {
     // ── Graceful shutdown ──
     function shutdown(): void {
       console.log('\nShutting down...');
+      terminalManager?.dispose();
       runtime.dispose();
       server.stop();
       process.exit(0);
@@ -237,6 +278,7 @@ async function main(): Promise<void> {
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
   } catch (err) {
+    terminalManager?.dispose();
     console.error('Failed to start server:', err);
     process.exit(1);
   }

@@ -16,6 +16,10 @@ export interface ServerConfig extends ServerTarget {
   startedAt: number;
   /** Whether this server serves the webview SPA (standalone / !embedded). */
   servesSpa: boolean;
+  /** Whether this server owns standalone PTYs and instruction profiles. */
+  interactive?: boolean;
+  /** Selected workspace identity; prevents cross-project standalone reuse. */
+  workspacePath?: string;
   /** Registry record format version. */
   protocol: number;
 }
@@ -46,6 +50,8 @@ export function isServerConfig(value: unknown): value is ServerConfig {
     Number.isSafeInteger(value.startedAt) &&
     (value.startedAt as number) >= 0 &&
     typeof value.servesSpa === 'boolean' &&
+    (value.interactive === undefined || typeof value.interactive === 'boolean') &&
+    (value.workspacePath === undefined || typeof value.workspacePath === 'string') &&
     value.protocol === SERVER_REGISTRY_PROTOCOL_VERSION
   );
 }

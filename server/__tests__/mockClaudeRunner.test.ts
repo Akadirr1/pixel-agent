@@ -11,6 +11,9 @@ let tmpHome: string;
 let workspaceDir: string;
 
 function makeNodeCommand(scriptPath: string): string {
+  if (process.platform === 'win32') {
+    return `"${process.execPath}" "${scriptPath}"`;
+  }
   return `${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)}`;
 }
 
@@ -54,6 +57,7 @@ function runMockClaude(
       env: {
         ...process.env,
         HOME: tmpHome,
+        USERPROFILE: tmpHome,
       },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
@@ -139,7 +143,9 @@ describe('mock-claude-runner hook execution', () => {
     const { code, stderr } = await runMockClaude();
 
     expect(code, stderr).toBe(0);
-    expect(fs.existsSync(pixelOutput)).toBe(true);
+    const actionsPath = path.join(tmpHome, '.claude-mock', 'actions.log');
+    const actions = fs.existsSync(actionsPath) ? fs.readFileSync(actionsPath, 'utf8') : '';
+    expect(fs.existsSync(pixelOutput), actions).toBe(true);
     expect(fs.existsSync(thirdPartyOutput)).toBe(false);
     expect(JSON.parse(fs.readFileSync(pixelOutput, 'utf8'))).toMatchObject({
       session_id: 'test-session',

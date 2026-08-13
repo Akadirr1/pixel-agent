@@ -13,6 +13,8 @@ interface BottomToolbarProps {
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
   workspaceFolders: WorkspaceFolder[];
+  isWorkspaceOpen: boolean;
+  onToggleWorkspace: () => void;
 }
 
 export function BottomToolbar({
@@ -22,6 +24,8 @@ export function BottomToolbar({
   isSettingsOpen,
   onToggleSettings,
   workspaceFolders,
+  isWorkspaceOpen,
+  onToggleWorkspace,
 }: BottomToolbarProps) {
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isBypassMenuOpen, setIsBypassMenuOpen] = useState(false);
@@ -83,8 +87,15 @@ export function BottomToolbar({
 
   return (
     <div className="absolute bottom-10 left-10 z-20 flex items-center gap-4 pixel-panel p-4">
-      {/* Hide + Agent in standalone browser mode (no terminal to interact with) */}
-      {!isBrowserRuntime && (
+      {isBrowserRuntime ? (
+        <Button
+          variant={isWorkspaceOpen ? 'active' : 'accent'}
+          onClick={onToggleWorkspace}
+          title="Open agent instructions and standalone terminals"
+        >
+          Agents & Terminals
+        </Button>
+      ) : (
         <div
           ref={folderPickerRef}
           className="relative"

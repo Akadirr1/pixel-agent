@@ -97,6 +97,15 @@ export const LAYOUT_SAVE_DEBOUNCE_MS = 500;
 // ── Layout Import/Export (browser-native, standalone) ────────
 /** Suggested filename when exporting the office layout from the standalone browser. */
 export const LAYOUT_EXPORT_FILENAME = 'pixel-agents-layout.json';
+
+// ── Standalone terminal ───────────────────────────────────────
+export const TERMINAL_FONT_FAMILY = "'FS Pixel Sans', monospace";
+export const TERMINAL_THEME = {
+  background: '#11111b',
+  foreground: '#f2f2f2',
+  cursor: '#746fff',
+  selectionBackground: '#6030ff66',
+} as const;
 /** MIME type for the exported layout Blob. */
 export const LAYOUT_EXPORT_MIME = 'application/json';
 export const DEFAULT_FLOOR_COLOR: ColorValue = { h: 35, s: 30, b: 15, c: 0 };

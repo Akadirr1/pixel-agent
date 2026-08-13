@@ -7,6 +7,8 @@ import { readConfig, writeConfig } from './configPersistence.js';
 import { HUE_SHIFT_MAX_DEG, PALETTE_COUNT } from './constants.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
 import { claudeProvider } from './providers/index.js';
+import type { StandaloneTerminalManager } from './standaloneTerminalManager.js';
+import type { WorkspaceProfileService } from './workspaceProfiles.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -39,6 +41,10 @@ export interface ClientMessageContext {
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
   /** Reload assets after an external-asset-directory change. Needs the dist root, known only to cli.ts. */
   onReloadAssets?: ReloadAssetsSideEffect;
+  /** Standalone PTY owner. Undefined for editor adapters and monitor-only mode. */
+  terminalManager?: StandaloneTerminalManager;
+  /** Dynamic instruction discovery for the selected standalone workspace. */
+  profileService?: WorkspaceProfileService;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -89,6 +95,57 @@ export function handleClientMessage(
       // Point-to-point reply to the requesting socket (NOT a broadcast).
       send({ type: 'agentDiagnostics', agents: buildAgentDiagnostics(store) });
       break;
+
+    case 'refreshAgentProfiles':
+      sendAgentProfiles(send, ctx);
+      sendTerminalSessions(send, ctx);
+      break;
+
+    case 'createTerminal': {
+      if (!ctx.terminalManager || !ctx.profileService) {
+        send({ type: 'terminalError', message: 'Interactive terminals are disabled' });
+        break;
+      }
+      try {
+        const profileId = typeof msg.profileId === 'string' ? msg.profileId : undefined;
+        const snapshot = ctx.profileService.load();
+        const profile = profileId
+          ? snapshot.profiles.find((candidate) => candidate.id === profileId)
+          : undefined;
+        if (profileId && !profile) throw new Error(`Unknown agent profile: ${profileId}`);
+        ctx.terminalManager.create({
+          ...(typeof msg.cwd === 'string' ? { cwd: msg.cwd } : {}),
+          ...(typeof msg.cols === 'number' ? { cols: msg.cols } : {}),
+          ...(typeof msg.rows === 'number' ? { rows: msg.rows } : {}),
+          ...(profile ? { profile } : {}),
+        });
+      } catch (error) {
+        send({ type: 'terminalError', message: String(error) });
+      }
+      break;
+    }
+
+    case 'terminalInput': {
+      if (!ctx.terminalManager) break;
+      const id = typeof msg.id === 'string' ? msg.id : '';
+      const data = typeof msg.data === 'string' ? msg.data : '';
+      if (id && data && data.length <= 64 * 1024) ctx.terminalManager.write(id, data);
+      break;
+    }
+
+    case 'terminalResize': {
+      if (!ctx.terminalManager) break;
+      const id = typeof msg.id === 'string' ? msg.id : '';
+      if (id) ctx.terminalManager.resize(id, msg.cols as number, msg.rows as number);
+      break;
+    }
+
+    case 'closeTerminal': {
+      if (!ctx.terminalManager) break;
+      const id = typeof msg.id === 'string' ? msg.id : '';
+      if (id) ctx.terminalManager.close(id);
+      break;
+    }
 
     case 'saveLayout':
       if (msg.layout) {
@@ -340,4 +397,30 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // exist once the layout flush creates them. Without this a reconnecting
   // client shows bare characters until each agent takes another turn.
   resendAgentActivity(send, store);
+
+  // 9. Standalone workspace profiles and PTY sessions. Editor adapters omit
+  // these services and receive an empty, disabled snapshot instead.
+  sendAgentProfiles(send, ctx);
+  sendTerminalSessions(send, ctx);
+}
+
+function sendTerminalSessions(send: WsSend, ctx: ClientMessageContext): void {
+  const terminals = ctx.terminalManager?.list() ?? [];
+  send({ type: 'terminalSessions', terminals });
+  for (const terminal of terminals) {
+    const data = ctx.terminalManager?.snapshot(terminal.id);
+    if (data) send({ type: 'terminalOutput', id: terminal.id, data });
+  }
+}
+
+function sendAgentProfiles(send: WsSend, ctx: ClientMessageContext): void {
+  const snapshot = ctx.profileService?.load();
+  send({
+    type: 'agentProfilesLoaded',
+    workspaceName: snapshot?.workspaceName ?? '',
+    workspacePath: snapshot?.workspacePath ?? '',
+    terminalEnabled: Boolean(ctx.terminalManager),
+    profiles: snapshot?.profiles ?? [],
+    warnings: snapshot?.warnings ?? [],
+  });
 }

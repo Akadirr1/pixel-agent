@@ -25,6 +25,35 @@
 
 Pixel Agents turns the AI coding agents running in your terminals into animated pixel-art characters working in a tiny office. They walk to their desks, sit down, type when they're editing files, read when they're searching, and flag you visually when they're stuck waiting for input.
 
+## Akadirr1 standalone control room
+
+This repository extends the upstream Pixel Agents project with a standalone,
+editor-independent agent control room:
+
+- Browse complete agent instructions discovered from `.pixel-agents/agents/`,
+  `.claude/agents/`, and `.codex/agents/`.
+- Refresh project-owned profiles without reinstalling or restarting the UI.
+- Launch Claude profiles and ordinary shells in real, tabbed PTY terminals.
+- Stream terminal input and output in the browser on Windows, macOS, and Linux.
+- Select any project with `--workspace`; optional configuration lives in
+  `.pixel-agents/workspace.json`.
+- Keep interactive terminals localhost-only. Network binds require
+  `--no-terminal` monitor mode.
+
+The npm name `pixel-agents` still belongs to the upstream release. Until this
+fork has its own scoped npm package, run this version from source:
+
+```bash
+git clone git@github.com:Akadirr1/pixel-agent.git
+cd pixel-agent
+npm install
+npm run package
+node dist/cli.js --workspace /path/to/your/project
+```
+
+See [Standalone workspaces](docs/standalone-workspaces.md) for the reusable
+project profile format and supported agent sources.
+
 It ships in two forms from the same codebase:
 
 - **VS Code extension** — [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents) and [Open VSX](https://open-vsx.org/extension/pablodelucca/pixel-agents). Agents launch into VS Code terminals; characters render in the panel area.
@@ -91,7 +120,9 @@ cd /path/to/your/project
 npx pixel-agents
 ```
 
-The CLI chooses a free local port and prints the URL. Standalone does not launch Claude for you; start Claude Code in a terminal for the same workspace. To install the command globally instead:
+The upstream npm CLI chooses a free local port and prints the URL. This fork's
+**Agents & Terminals** dock can launch discovered Claude profiles or ordinary
+shells directly. To install the upstream command globally instead:
 
 ```bash
 npm install --global pixel-agents
@@ -167,7 +198,7 @@ npm run build
 Press **F5** in VS Code to launch the Extension Development Host. To run the standalone bundle built from source:
 
 ```bash
-node dist/cli.js
+node dist/cli.js --workspace /path/to/your/project
 ```
 
 Common checks:
