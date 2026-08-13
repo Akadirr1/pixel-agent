@@ -1,9 +1,14 @@
 # Standalone workspaces, instructions, and terminals
 
-The standalone adapter is project-agnostic. Select a workspace at startup:
+The standalone adapter is project-agnostic. Until an npm release is enabled,
+build the public GitHub repository and select a workspace at startup:
 
 ```text
-npx @akadirr1/pixel-agent --workspace /path/to/project
+git clone https://github.com/Akadirr1/pixel-agent.git
+cd pixel-agent
+npm install
+npm run package
+node dist/cli.js --workspace /path/to/project
 ```
 
 The default is the current directory. Interactive terminals are local-only and

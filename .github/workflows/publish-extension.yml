@@ -143,11 +143,3 @@ jobs:
           path: ${{ runner.temp }}/npm-package/
           if-no-files-found: error
           retention-days: 7
-
-      - name: Publish Verified Artifact to npm
-        if: github.event_name == 'release' && github.event.action == 'published'
-        run: >-
-          node scripts/publish-npm-package.mjs
-          --metadata "${{ steps.npm-package.outputs.metadata }}"
-          --tag "${{ github.event.release.tag_name }}"
-          --ref "${{ github.ref }}"

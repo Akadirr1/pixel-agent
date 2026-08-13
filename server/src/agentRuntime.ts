@@ -87,7 +87,7 @@ export class AgentRuntime {
 
   constructor(
     private readonly store: AgentStateStore,
-    provider: HookProvider,
+    private readonly provider: HookProvider,
   ) {
     // Wire module-level dependencies
     setDismissalTracker(this.dismissalTracker);
@@ -302,12 +302,82 @@ export class AgentRuntime {
     this.hookEventHandler.unregisterAgent(sessionId);
   }
 
+  /**
+   * Register a standalone profile launch before its PTY starts. The character is
+   * therefore visible immediately, and the deterministic Claude session id lets
+   * hooks and transcript polling update that same character instead of adopting
+   * a second external agent later.
+   */
+  createStandaloneAgent(sessionId: string, cwd: string): AgentState {
+    const sessionDirs = this.provider.getSessionDirs?.(cwd) ?? [];
+    if (sessionDirs.length === 0) {
+      throw new Error(`Provider ${this.provider.id} does not expose a session directory`);
+    }
+
+    const projectDir = sessionDirs[0];
+    const jsonlFile = path.join(projectDir, `${sessionId}.jsonl`);
+    const id = this.store.nextAgentId.current++;
+    const agent: AgentState = {
+      id,
+      sessionId,
+      terminalRef: undefined,
+      isExternal: false,
+      projectDir,
+      jsonlFile,
+      fileOffset: 0,
+      lineBuffer: '',
+      activeToolIds: new Set(),
+      activeToolStatuses: new Map(),
+      activeToolNames: new Map(),
+      activeSubagentToolIds: new Map(),
+      activeSubagentToolNames: new Map(),
+      backgroundAgentToolIds: new Set(),
+      isWaiting: false,
+      permissionSent: false,
+      hadToolsInTurn: false,
+      lastDataAt: 0,
+      linesProcessed: 0,
+      seenUnknownRecordTypes: new Set(),
+      hookDelivered: false,
+      providerId: this.provider.id,
+      contextTokens: 0,
+      maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+    };
+
+    this.knownJsonlFiles.add(jsonlFile);
+    assignPaletteIfNeeded(agent, this.store);
+    this.store.set(id, agent);
+    this.activeAgentId.current = id;
+    this.registerAgent(sessionId, id);
+    this.store.persist();
+
+    // Ensure the launch directory belongs to this server, then watch the
+    // deterministic transcript path. ENOENT is expected until Claude creates it.
+    this.startProjectScan(projectDir);
+    startFileWatching(
+      id,
+      jsonlFile,
+      this.store,
+      this.fileWatchers,
+      this.pollingTimers,
+      this.waitingTimers,
+      this.permissionTimers,
+    );
+
+    console.log(
+      `[Pixel Agents] Standalone: Agent ${id} registered for session ${sessionId.slice(0, 8)}...`,
+    );
+    return agent;
+  }
+
   // ── Agent removal (shared cleanup) ──
 
   /** Remove an agent: stop watchers, cancel timers, delete from store. */
   removeAgent(id: number): void {
     const agent = this.store.get(id);
     if (!agent) return;
+
+    this.unregisterAgent(agent.sessionId);
 
     // Stop JSONL poll timer
     const jpTimer = this.jsonlPollTimers.get(id);

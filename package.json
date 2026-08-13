@@ -3,6 +3,7 @@
   "displayName": "Pixel Agent Control Room",
   "description": "Standalone pixel-art control room for discovering, launching, and monitoring coding agents",
   "version": "0.1.0",
+  "private": true,
   "publisher": "akadirr1",
   "repository": {
     "type": "git",
@@ -11,9 +12,6 @@
   "homepage": "https://github.com/Akadirr1/pixel-agent#readme",
   "bugs": {
     "url": "https://github.com/Akadirr1/pixel-agent/issues"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "workspaces": ["server", "webview-ui"],
   "icon": "icon.png",

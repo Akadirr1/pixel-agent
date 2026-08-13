@@ -29,6 +29,9 @@ interface ManagedTerminal {
   metadata: TerminalSessionData;
   process: pty.IPty;
   scrollback: string;
+  agentId?: number;
+  onExit?: () => void;
+  lifecycleFinished: boolean;
 }
 
 export interface CreateTerminalOptions {
@@ -36,6 +39,12 @@ export interface CreateTerminalOptions {
   cols?: number;
   rows?: number;
   profile?: AgentProfileData;
+  /** Claude session id shared with the visual agent registered by AgentRuntime. */
+  sessionId?: string;
+  /** Visual agent owned by this terminal, if this is a profile launch. */
+  agentId?: number;
+  /** Called once when the managed terminal exits or is explicitly closed. */
+  onExit?: () => void;
 }
 
 function environment(): Record<string, string> {
@@ -129,9 +138,10 @@ export function resolveExecutablePath(
   return null;
 }
 
-function profileCommand(
+export function buildProfileLaunchCommand(
   profile: AgentProfileData,
   env: Readonly<Record<string, string | undefined>>,
+  sessionId: string,
 ): {
   command: string;
   args: string[];
@@ -154,6 +164,8 @@ function profileCommand(
   return {
     command,
     args: [
+      '--session-id',
+      sessionId,
       '--agents',
       JSON.stringify({ [profile.name]: definition }),
       '--agent',
@@ -177,13 +189,21 @@ export class StandaloneTerminalManager extends EventEmitter {
     return [...this.sessions.values()].map((session) => ({ ...session.metadata }));
   }
 
-  create(options: CreateTerminalOptions = {}): TerminalSessionData {
-    const cwd = path.resolve(this.workspaceRoot, options.cwd || '.');
-    if (!isInside(this.workspaceRoot, cwd)) {
+  resolveCwd(cwd?: string): string {
+    const resolved = path.resolve(this.workspaceRoot, cwd || '.');
+    if (!isInside(this.workspaceRoot, resolved)) {
       throw new Error('Terminal working directory must stay inside the selected workspace');
     }
+    return resolved;
+  }
+
+  create(options: CreateTerminalOptions = {}): TerminalSessionData {
+    const cwd = this.resolveCwd(options.cwd);
     const env = environment();
-    const executable = options.profile ? profileCommand(options.profile, env) : shellCommand();
+    const sessionId = options.profile ? (options.sessionId ?? randomUUID()) : undefined;
+    const executable = options.profile
+      ? buildProfileLaunchCommand(options.profile, env, sessionId!)
+      : shellCommand();
     const cols = clampInteger(options.cols, DEFAULT_COLS, MIN_COLS, MAX_COLS);
     const rows = clampInteger(options.rows, DEFAULT_ROWS, MIN_ROWS, MAX_ROWS);
     const child = pty.spawn(executable.command, executable.args, {
@@ -206,7 +226,14 @@ export class StandaloneTerminalManager extends EventEmitter {
       status: 'running',
       ...(options.profile ? { profileId: options.profile.id } : {}),
     };
-    const managed: ManagedTerminal = { metadata, process: child, scrollback: '' };
+    const managed: ManagedTerminal = {
+      metadata,
+      process: child,
+      scrollback: '',
+      agentId: options.agentId,
+      onExit: options.onExit,
+      lifecycleFinished: false,
+    };
     this.sessions.set(id, managed);
     child.onData((data) => {
       managed.scrollback = (managed.scrollback + data).slice(-MAX_SCROLLBACK_CHARS);
@@ -216,6 +243,7 @@ export class StandaloneTerminalManager extends EventEmitter {
       managed.metadata.status = 'exited';
       managed.metadata.exitCode = exitCode;
       this.emit('exited', { ...managed.metadata });
+      this.finishLifecycle(managed);
     });
     this.emit('created', { ...metadata });
     return { ...metadata };
@@ -245,7 +273,20 @@ export class StandaloneTerminalManager extends EventEmitter {
     if (!session) return;
     if (session.metadata.status === 'running') session.process.kill();
     this.sessions.delete(id);
+    this.finishLifecycle(session);
     this.emit('closed', id);
+  }
+
+  closeByAgent(agentId: number): void {
+    for (const [id, session] of this.sessions) {
+      if (session.agentId === agentId) this.close(id);
+    }
+  }
+
+  private finishLifecycle(session: ManagedTerminal): void {
+    if (session.lifecycleFinished) return;
+    session.lifecycleFinished = true;
+    session.onExit?.();
   }
 
   dispose(): void {

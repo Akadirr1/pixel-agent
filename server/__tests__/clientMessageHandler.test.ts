@@ -11,6 +11,7 @@ vi.mock('os', async () => {
   return { ...actual, homedir: () => homeOverride };
 });
 
+import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import {
   type AssetCache,
@@ -19,7 +20,14 @@ import {
 } from '../src/clientMessageHandler.js';
 import { readConfig } from '../src/configPersistence.js';
 import { FileStateAdapter } from '../src/fileStateAdapter.js';
+import { claudeProvider } from '../src/providers/hook/claude/claude.js';
+import type {
+  CreateTerminalOptions,
+  StandaloneTerminalManager,
+  TerminalSessionData,
+} from '../src/standaloneTerminalManager.js';
 import type { AgentState } from '../src/types.js';
+import type { WorkspaceProfileService } from '../src/workspaceProfiles.js';
 
 function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   return {
@@ -443,5 +451,103 @@ describe('clientMessageHandler: saveAgentSeats palette sync', () => {
       ctx,
     );
     expect(store.get(1)?.palette).toBe(7);
+  });
+});
+
+describe('clientMessageHandler: profile terminal to pixel lifecycle', () => {
+  let tempHome: string;
+  let workspace: string;
+  let store: AgentStateStore;
+  let runtime: AgentRuntime;
+
+  beforeEach(() => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cmh-launch-'));
+    homeOverride = tempHome;
+    workspace = path.join(tempHome, 'workspace');
+    fs.mkdirSync(workspace, { recursive: true });
+    store = new AgentStateStore();
+    store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
+    runtime = new AgentRuntime(store, claudeProvider);
+  });
+
+  afterEach(() => {
+    runtime.dispose();
+    store.dispose();
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('materializes two profile launches as two pixels and removes them with their terminals', () => {
+    const launches: CreateTerminalOptions[] = [];
+    const closeByAgent = vi.fn();
+    const terminalManager = {
+      resolveCwd: () => workspace,
+      create: (options: CreateTerminalOptions): TerminalSessionData => {
+        launches.push(options);
+        return {
+          id: `terminal-${launches.length}`,
+          title: options.profile?.name ?? 'Shell',
+          cwd: workspace,
+          pid: 1000 + launches.length,
+          status: 'running',
+          profileId: options.profile?.id,
+        };
+      },
+      closeByAgent,
+    } as unknown as StandaloneTerminalManager;
+    const profiles = [
+      {
+        id: 'claude:reviewer',
+        name: 'reviewer',
+        description: 'Reviews changes',
+        provider: 'claude',
+        sourcePath: '.pixel-agents/agents/reviewer.md',
+        instructions: 'Review the current change.',
+        launchable: true,
+      },
+      {
+        id: 'claude:diagnostics',
+        name: 'diagnostics',
+        description: 'Investigates failures',
+        provider: 'claude',
+        sourcePath: '.pixel-agents/agents/diagnostics.md',
+        instructions: 'Investigate the current failure.',
+        launchable: true,
+      },
+    ];
+    const profileService = {
+      load: () => ({
+        workspaceName: 'test',
+        workspacePath: workspace,
+        profiles,
+        warnings: [],
+      }),
+    } as unknown as WorkspaceProfileService;
+    const added: number[] = [];
+    store.on('agentAdded', (id) => added.push(id));
+    const context: ClientMessageContext = {
+      store,
+      runtime,
+      cache: null,
+      terminalManager,
+      profileService,
+    };
+
+    handleClientMessage({ type: 'createTerminal', profileId: profiles[0].id }, () => {}, context);
+    handleClientMessage({ type: 'createTerminal', profileId: profiles[1].id }, () => {}, context);
+
+    expect(launches).toHaveLength(2);
+    expect(store.size).toBe(2);
+    expect(added).toHaveLength(2);
+    expect(launches[0].sessionId).toBe(store.get(added[0])?.sessionId);
+    expect(launches[1].sessionId).toBe(store.get(added[1])?.sessionId);
+    expect(launches[0].sessionId).not.toBe(launches[1].sessionId);
+
+    launches[0].onExit?.();
+    expect(store.has(added[0])).toBe(false);
+    expect(store.has(added[1])).toBe(true);
+
+    handleClientMessage({ type: 'closeAgent', id: added[1] }, () => {}, context);
+    expect(closeByAgent).toHaveBeenCalledWith(added[1]);
+    expect(store.size).toBe(0);
   });
 });

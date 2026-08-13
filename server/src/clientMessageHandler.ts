@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import { resendAgentActivity } from './agentActivityResend.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
@@ -86,6 +88,7 @@ export function handleClientMessage(
       const agent = store.get(id);
       if (agent && runtime) {
         runtime.dismissalTracker.dismiss(agent.jsonlFile);
+        ctx.terminalManager?.closeByAgent(id);
         runtime.removeAgent(id);
       }
       break;
@@ -113,12 +116,35 @@ export function handleClientMessage(
           ? snapshot.profiles.find((candidate) => candidate.id === profileId)
           : undefined;
         if (profileId && !profile) throw new Error(`Unknown agent profile: ${profileId}`);
-        ctx.terminalManager.create({
-          ...(typeof msg.cwd === 'string' ? { cwd: msg.cwd } : {}),
+        const cwdInput = typeof msg.cwd === 'string' ? msg.cwd : undefined;
+        const terminalOptions = {
+          ...(cwdInput ? { cwd: cwdInput } : {}),
           ...(typeof msg.cols === 'number' ? { cols: msg.cols } : {}),
           ...(typeof msg.rows === 'number' ? { rows: msg.rows } : {}),
-          ...(profile ? { profile } : {}),
-        });
+        };
+
+        if (!profile) {
+          ctx.terminalManager.create(terminalOptions);
+          break;
+        }
+        if (!runtime) throw new Error('Agent runtime is unavailable');
+
+        const cwd = ctx.terminalManager.resolveCwd(cwdInput);
+        const sessionId = randomUUID();
+        const agent = runtime.createStandaloneAgent(sessionId, cwd);
+        try {
+          ctx.terminalManager.create({
+            ...terminalOptions,
+            cwd,
+            profile,
+            sessionId,
+            agentId: agent.id,
+            onExit: () => runtime.removeAgent(agent.id),
+          });
+        } catch (error) {
+          runtime.removeAgent(agent.id);
+          throw error;
+        }
       } catch (error) {
         send({ type: 'terminalError', message: String(error) });
       }
