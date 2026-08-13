@@ -3,7 +3,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { StandaloneTerminalManager } from '../src/standaloneTerminalManager.js';
+import {
+  resolveExecutablePath,
+  StandaloneTerminalManager,
+} from '../src/standaloneTerminalManager.js';
 
 const OUTPUT_TIMEOUT_MS = 5_000;
 
@@ -58,5 +61,24 @@ describe('StandaloneTerminalManager', () => {
 
   it('rejects a working directory outside the selected workspace', () => {
     expect(() => manager.create({ cwd: '..' })).toThrow(/inside the selected workspace/);
+  });
+
+  it('resolves a PATH executable before handing it to node-pty', () => {
+    const bin = fs.mkdtempSync(path.join(workspace, 'bin-'));
+    const extension = process.platform === 'win32' ? '.EXE' : '';
+    const executable = path.join(bin, `claude${extension}`);
+    fs.writeFileSync(executable, 'fixture');
+    if (process.platform !== 'win32') fs.chmodSync(executable, 0o755);
+
+    expect(
+      resolveExecutablePath('claude', {
+        PATH: bin,
+        PATHEXT: '.EXE;.CMD',
+      }),
+    ).toBe(executable);
+  });
+
+  it('returns null with an empty PATH instead of surfacing node-pty File not found', () => {
+    expect(resolveExecutablePath('claude', { PATH: '' })).toBeNull();
   });
 });

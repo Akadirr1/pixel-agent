@@ -40,10 +40,14 @@ function parseArgs(argv) {
 }
 
 async function execNpm(args, options = {}) {
-  return await execFileAsync(npmCommand(), args, {
+  const npmCli = process.env.npm_execpath;
+  const executable = npmCli ? process.execPath : npmCommand();
+  const commandArgs = npmCli ? [npmCli, ...args] : args;
+  return await execFileAsync(executable, commandArgs, {
     cwd: REPO_ROOT,
     env: { ...process.env, HUSKY: '0' },
     maxBuffer: 20 * 1024 * 1024,
+    shell: !npmCli && process.platform === 'win32',
     ...options,
   });
 }
@@ -112,12 +116,12 @@ async function verifyInstalledTarball(tarballPath) {
       cwd: smokeProject,
     });
 
-    const installedRoot = path.join(smokeProject, 'node_modules', 'pixel-agents');
+    const installedRoot = path.join(smokeProject, 'node_modules', '@akadirr1', 'pixel-agent');
     const installedManifest = JSON.parse(
       fs.readFileSync(path.join(installedRoot, 'package.json'), 'utf-8'),
     );
-    if (installedManifest.bin?.['pixel-agents'] !== './dist/cli.js') {
-      throw new Error('Installed package has an unexpected pixel-agents bin entry');
+    if (installedManifest.bin?.['pixel-agent'] !== './dist/cli.js') {
+      throw new Error('Installed package has an unexpected pixel-agent bin entry');
     }
 
     const installedCli = path.join(installedRoot, 'dist', 'cli.js');
@@ -130,15 +134,17 @@ async function verifyInstalledTarball(tarballPath) {
       smokeProject,
       'node_modules',
       '.bin',
-      process.platform === 'win32' ? 'pixel-agents.cmd' : 'pixel-agents',
+      process.platform === 'win32' ? 'pixel-agent.cmd' : 'pixel-agent',
     );
     const help = await execFileAsync(installedBin, ['--help'], {
       cwd: smokeProject,
       env: { ...process.env, HOME: smokeHome, USERPROFILE: smokeHome },
+      // Windows cannot exec a generated .cmd shim directly. The path is
+      // created entirely by this test and never contains user input.
       shell: process.platform === 'win32',
     });
-    if (!help.stdout.includes('Usage: pixel-agents')) {
-      throw new Error('Installed pixel-agents bin did not print CLI help');
+    if (!help.stdout.includes('Usage: pixel-agent')) {
+      throw new Error('Installed pixel-agent bin did not print CLI help');
     }
 
     const port = await getFreePort();

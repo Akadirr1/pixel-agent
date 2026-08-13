@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
 import * as pty from 'node-pty';
 import * as os from 'os';
 import * as path from 'path';
@@ -76,7 +77,62 @@ function shellCommand(): { command: string; args: string[]; title: string } {
   };
 }
 
-function profileCommand(profile: AgentProfileData): {
+function environmentValue(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): string | undefined {
+  const entry = Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return entry?.[1];
+}
+
+function isExecutableFile(candidate: string, platform: NodeJS.Platform): boolean {
+  try {
+    if (!fs.statSync(candidate).isFile()) return false;
+    fs.accessSync(candidate, platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * node-pty does not search PATH for commands on Windows. Resolve the executable
+ * ourselves so native Claude installs (`claude.exe`) and npm installs
+ * (`claude.cmd`) both launch consistently across platforms.
+ */
+export function resolveExecutablePath(
+  command: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  if (path.isAbsolute(command)) {
+    return isExecutableFile(command, platform) ? command : null;
+  }
+
+  const rawPath = environmentValue(env, 'PATH') ?? '';
+  const extensions =
+    platform === 'win32'
+      ? (environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+      : [''];
+  const hasExtension = platform === 'win32' && path.extname(command).length > 0;
+
+  for (const rawDirectory of rawPath.split(path.delimiter)) {
+    const directory = rawDirectory.trim().replace(/^"|"$/g, '');
+    if (!directory) continue;
+    const candidates = hasExtension
+      ? [path.join(directory, command)]
+      : extensions.map((extension) => path.join(directory, `${command}${extension}`));
+    for (const candidate of candidates) {
+      if (isExecutableFile(candidate, platform)) return candidate;
+    }
+  }
+  return null;
+}
+
+function profileCommand(
+  profile: AgentProfileData,
+  env: Readonly<Record<string, string | undefined>>,
+): {
   command: string;
   args: string[];
   title: string;
@@ -84,13 +140,19 @@ function profileCommand(profile: AgentProfileData): {
   if (profile.provider !== 'claude') {
     throw new Error(`Provider ${profile.provider} is not launchable yet`);
   }
+  const command = resolveExecutablePath('claude', env);
+  if (!command) {
+    throw new Error(
+      'Claude Code CLI was not found on PATH. Install Claude Code, restart Pixel Agents, and try again.',
+    );
+  }
   const definition: Record<string, unknown> = {
     description: profile.description,
     prompt: profile.instructions,
   };
   if (profile.model && profile.model !== 'inherit') definition.model = profile.model;
   return {
-    command: 'claude',
+    command,
     args: [
       '--agents',
       JSON.stringify({ [profile.name]: definition }),
@@ -120,7 +182,8 @@ export class StandaloneTerminalManager extends EventEmitter {
     if (!isInside(this.workspaceRoot, cwd)) {
       throw new Error('Terminal working directory must stay inside the selected workspace');
     }
-    const executable = options.profile ? profileCommand(options.profile) : shellCommand();
+    const env = environment();
+    const executable = options.profile ? profileCommand(options.profile, env) : shellCommand();
     const cols = clampInteger(options.cols, DEFAULT_COLS, MIN_COLS, MAX_COLS);
     const rows = clampInteger(options.rows, DEFAULT_ROWS, MIN_ROWS, MAX_ROWS);
     const child = pty.spawn(executable.command, executable.args, {
@@ -128,7 +191,11 @@ export class StandaloneTerminalManager extends EventEmitter {
       cols,
       rows,
       cwd,
-      env: environment(),
+      env,
+      // The packaged ConPTY backend avoids node-pty's auxiliary
+      // AttachConsole cleanup process, which can fail when an interactive
+      // Claude session is closed quickly on Windows.
+      ...(process.platform === 'win32' ? { useConpty: true, useConptyDll: true } : {}),
     });
     const id = randomUUID();
     const metadata: TerminalSessionData = {

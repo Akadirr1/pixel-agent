@@ -40,8 +40,14 @@ editor-independent agent control room:
 - Keep interactive terminals localhost-only. Network binds require
   `--no-terminal` monitor mode.
 
-The npm name `pixel-agents` still belongs to the upstream release. Until this
-fork has its own scoped npm package, run this version from source:
+The upstream `pixel-agents` npm name remains with the original project. This
+fork uses the independent public package name `@akadirr1/pixel-agent`:
+
+```bash
+npx @akadirr1/pixel-agent --workspace /path/to/your/project
+```
+
+To run the repository from source instead:
 
 ```bash
 git clone git@github.com:Akadirr1/pixel-agent.git

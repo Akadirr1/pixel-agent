@@ -155,7 +155,7 @@ describe('dist/cli.js entry-point guard', () => {
 
     const { code, stdout } = await runCli(['--help']);
     expect(code).toBe(0);
-    expect(stdout).toContain('Usage: pixel-agents');
+    expect(stdout).toContain('Usage: pixel-agent');
   });
 
   // 12. Direct execution still runs main()'s port validation (rejects before listen())

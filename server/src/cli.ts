@@ -77,7 +77,7 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (argv[i] === '--no-terminal') {
       args.terminalEnabled = false;
     } else if (argv[i] === '--help') {
-      console.log(`Usage: pixel-agents [options]
+      console.log(`Usage: pixel-agent [options]
 
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)

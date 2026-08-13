@@ -1,12 +1,19 @@
 {
-  "name": "pixel-agents",
-  "displayName": "Pixel Agents",
-  "description": "Pixel art office where your Claude Code agents come to life as animated characters",
-  "version": "1.4.0",
-  "publisher": "pablodelucca",
+  "name": "@akadirr1/pixel-agent",
+  "displayName": "Pixel Agent Control Room",
+  "description": "Standalone pixel-art control room for discovering, launching, and monitoring coding agents",
+  "version": "0.1.0",
+  "publisher": "akadirr1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pixel-agents-hq/pixel-agents"
+    "url": "git+https://github.com/Akadirr1/pixel-agent.git"
+  },
+  "homepage": "https://github.com/Akadirr1/pixel-agent#readme",
+  "bugs": {
+    "url": "https://github.com/Akadirr1/pixel-agent/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "workspaces": ["server", "webview-ui"],
   "icon": "icon.png",
@@ -24,7 +31,7 @@
   ],
   "main": "./dist/extension.js",
   "bin": {
-    "pixel-agents": "./dist/cli.js"
+    "pixel-agent": "./dist/cli.js"
   },
   "files": [
     "CHANGELOG.md",

@@ -3,7 +3,7 @@
 The standalone adapter is project-agnostic. Select a workspace at startup:
 
 ```text
-npx pixel-agents --workspace /path/to/project
+npx @akadirr1/pixel-agent --workspace /path/to/project
 ```
 
 The default is the current directory. Interactive terminals are local-only and
